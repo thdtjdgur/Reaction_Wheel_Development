@@ -3,211 +3,249 @@
 <p align="center">
   <img src="https://img.shields.io/badge/MODEL-MATLAB%20%2F%20SIMULINK-25344F?style=for-the-badge&labelColor=555555" alt="MATLAB / Simulink" />
   <img src="https://img.shields.io/badge/CONTROL-MODEL--BASED%20PD-0C8D7B?style=for-the-badge&labelColor=555555" alt="Model-based PD control" />
-  <img src="https://img.shields.io/badge/STATUS-BASELINE%20%2B%20FRICTION-1F5FDB?style=for-the-badge&labelColor=555555" alt="Ideal torque baseline" />
+  <img src="https://img.shields.io/badge/STATUS-SIMULATION%20VALIDATION-1F5FDB?style=for-the-badge&labelColor=555555" alt="Simulation validation" />
 </p>
 
-**모델 기반 PD 제어기 설계 및 위성 자세 응답 검증**
+**모델 기반 자세제어기 설계 및 MATLAB/Simulink 응답 검증**
 
-3축 리액션휠 기반 위성 자세제어를 대상으로 동역학 모델링, PD 제어기 설계, MATLAB/Simulink 응답 검증 과정을 정리한 저장소이다. 현재 기록은 **이상적 토크 전달 조건(ideal actuator baseline)**의 폐루프 자세제어 시험과, 여기에 **리액션휠 관성·점성마찰·쿨롱마찰 모델을 추가한 시험**의 결과를 비교한다.
+3축 리액션휠 위성의 회전 동역학과 쿼터니언 자세 표현을 정리하고, 원하는 응답 특성으로부터 PD 게인을 설계하여 시뮬레이션으로 검증하는 프로젝트이다. 현재 **X축 5° 자세 기동**을 기준으로 이상적 토크 전달과 휠 관성·마찰 모델의 응답을 비교하였다.
 
-> **현재 검증 범위 (2026-11-17):** (1) 마찰·지연·포화가 없는 이상적 토크 전달 조건, (2) 휠 관성 및 점성·쿨롱마찰을 포함한 시뮬레이션 조건. 실제 마찰계수의 식별, 모터 구동기 폐루프, STM32 펌웨어 및 실물 시험은 수행·검증되지 않았다.
+> **진행 범위:** 동역학·제어기 설계 및 X축 시뮬레이션 검증 완료 / Spin-to-Spin 자세명령 생성은 이론 정리 단계 / STM32 및 실물 시험 미수행
 
-## 전체 제어 흐름
+## 1. 시스템 구성
 
-- 위성의 회전 동역학 및 쿼터니언 운동학을 Simulink에서 모델링
-- 목표 자세와 현재 자세의 **오차 쿼터니언 및 각속도 오차**를 사용해 PD 토크 명령 생성
-- 감쇠비 `ζ`와 고유진동수 `ω_n`으로 PD 이득을 **해석적으로 설계**
-- 시간응답을 이론적인 2차 시스템과 비교하여 상승시간, 정착시간, 오버슈트 및 자세 오차 검증
+\`\`\`text
+목표 자세 q_cmd, 목표 각속도 ω_cmd, 목표 각가속도 α_cmd
+                       │
+                       ▼
+               자세·각속도 오차 계산
+                       │
+                       ▼
+                  PD 자세제어기
+                       │ τ_cmd (위성 본체 토크 명령)
+                       ▼
+                 Wheel_Control_Model ── τ_actual ──> 위성 동역학 ──> q, ω
+                       ▲                                   │
+                       └──── 휠 속도 및 위성 각속도 ───────────┘
+\`\`\`
 
-```text
-목표 자세 q_cmd ──┐
-                   ▼
-               오차 계산 ──> PD 자세제어기 ── τ_cmd ──> 위성 동역학 ──> ω, q
-                   ▲                                          │
-                   └────────────── q, ω 피드백 ────────────────┘
-```
+이상적 구동기 시험에서는 \`Wheel_Control_Model\`을 생략하고 \(\tau_{actual}=\tau_{cmd}\)로 설정한다. 휠 제어 모델을 추가한 시험에서는 관성과 마찰을 고려한 실제 적용 토크를 위성 모델에 전달한다.
 
-첫 번째 시험에서는 `τ_actual = τ_cmd`인 이상적 토크 전달을 가정한다. 두 번째 시험에서는 `Wheel_Control_Model`을 중간에 연결하여 휠 관성 및 마찰 토크를 반영한다. 모터 전류·속도 폐루프와 하드웨어 검증은 후속 단계이다.
+## 2. 위성 동역학과 자세 표현
 
-### 자세 오차 및 PD 제어법칙
+### 리액션휠을 포함한 회전 동역학
 
-쿼터니언은 **벡터 성분을 먼저 배치하고 스칼라 성분을 마지막에 배치하는 형식** `q = [q_x, q_y, q_z, q_4]^T`을 사용한다.
-
-오차 쿼터니언은 기준으로 삼은 논문의 정의에 따라
-
-$$
-q_e = q \otimes q_{cmd}^{-1}
-$$
-
-로 계산한다. 실제 제어 토크 계산에는 오차 쿼터니언의 **벡터 성분** `q_{e,v}\in\mathbb{R}^3`를 사용한다.
+위성 본체와 휠의 회전 운동을 고려한 비선형 동역학은 다음과 같다.
 
 $$
-\tau_{cmd}
-=-K_P q_{e,v}-K_D(\omega-\omega_{cmd})
-+J_{eff}\alpha_{cmd},\qquad J_{eff}=J_{sc}-J_a.
+J_{sc}\dot{\boldsymbol\omega}
+=(J_{sc}\boldsymbol\omega+J_a\boldsymbol\nu)\times\boldsymbol\omega
+-J_a\boldsymbol\mu+\boldsymbol\tau_{dist}
 $$
 
-목표 자세 근처에서 `q_{e,v}\approx e/2`로 선형화하면 단일축의 특성방정식은 다음과 같다.
+리액션휠의 모터 토크를 \(T_m=J_a(\dot{\boldsymbol\omega}+\boldsymbol\mu)\)로 놓으면,
 
 $$
-s^2+\frac{K_D}{J_{eff}}s+\frac{K_P}{2J_{eff}}=0
+\boxed{
+(J_{sc}-J_a)\dot{\boldsymbol\omega}
+=(J_{sc}\boldsymbol\omega+J_a\boldsymbol\nu)\times\boldsymbol\omega
+-\boldsymbol T_m+\boldsymbol\tau_{dist}
+}
 $$
 
-이 식을 표준 2차 시스템 `s^2 + 2ζω_n s + ω_n^2 = 0`과 비교하면,
-
-$$
-\boxed{K_P=2\omega_n^2 J_{eff}},\qquad
-\boxed{K_D=2\zeta\omega_n J_{eff}}
-$$
-
-를 얻는다. 이 설계식은 **소각도 선형화 및 단일축 근사(축간 결합 무시)**를 전제로 한다.
-
-## 시험 조건: X축 5° 자세 기동
-
-| 항목 | 값 |
+| 기호 | 의미 |
 |:--|:--|
-| 시험 형태 | X축 목표 자세 5° 계단입력, 폐루프 시뮬레이션 |
-| 목표 쿼터니언 `q_cmd` | `[sin(pi/72); 0; 0; cos(pi/72)]` |
-| 초기 자세 `q(0)` | `[0; 0; 0; 1]` |
-| 초기 각속도 `ω(0)` | `[0; 0; 0]` rad/s |
-| 목표 각속도·각가속도 | `[0; 0; 0]` |
-| 리액션휠 초기 모멘텀 입력 | `hRW = [0; 0; 0]` (단순화) |
-| 설계 감쇠비 `ζ` | **1.0** (임계감쇠) |
-| 설계 고유진동수 `ω_n` | **1.0 rad/s** |
-| X축 유효 관성모멘트 `J_eff,x` | **0.199 kg·m²** |
-| X축 PD 게인 | `K_P,x = 0.398`, `K_D,x = 0.398` |
-| 시뮬레이션 시간 | **10초** |
-| 적분 설정 | Variable-step / ode45, RelTol `1e-8`, Max step `0.001 s` |
-| 구동기 가정 | **기준선 시험:** 이상적 토크 전달 (마찰/지연/포화 없음) |
+| \(J_{sc}\), \(J_a\) | 위성 전체 및 리액션휠의 관성행렬 |
+| \(\boldsymbol\omega\) | 위성 본체의 각속도 |
+| \(\boldsymbol\nu\), \(\boldsymbol\mu\) | 위성 본체에 대한 휠의 상대 각속도 및 상대 각가속도 |
+| \(\boldsymbol T_m\), \(\boldsymbol\tau_{dist}\) | 휠에 작용하는 모터 토크 및 외란 토크 |
 
-현재 자세 `q`는 위성 모델이 계산한 각속도 `ω`를 쿼터니언 운동학 `q̇ = 1/2 Ω(ω)q`에 대입하고, 이를 적분하여 얻는다.
+\((J_{sc}\boldsymbol\omega+J_a\boldsymbol\nu)\times\boldsymbol\omega\)는 각운동량에 의한 **축간 결합 항**이다. 단일축 소각도 제어기 설계에서는 이를 무시하여 선형화하지만, 비선형 위성 모델에서는 고려해야 한다.
 
-## 이상적 토크 전달 조건의 시뮬레이션 결과
+### 쿼터니언 자세와 오차
 
-### 토크 · 각속도 · 회전각 응답
-
-![임계감쇠 단일축 PD 제어의 토크·각속도·회전각 참조 응답](assets/ideal_pd_response.svg)
-
-*그림: `ζ=1`, `ω_n=1`, `J_eff,x=0.199` 조건의 이상적 2차계 자세 응답(해석적 기준선).*
-
-### 측정 출력 특성
-
-![Simulink에서 측정한 출력 특성 요약](assets/ideal_pd_metrics.svg)
-
-| 지표 | Simulink 측정값 | 비교 기준 |
-|:--|--:|:--|
-| 상승시간 `T_r` (10→90%) | **3.359 s** | 임계감쇠 이론 응답 약 3.358 s |
-| 정착시간 `T_s` (±2%) | **5.835 s** | 임계감쇠 이론 응답 약 5.834 s |
-| 최대 오버슈트 `%OS` | **0 %** | 임계감쇠 이론 응답 0% |
-| 10초 시점 자세 오차 | **0.002498°** | 0°에 가까워지는 중 |
-| 설계 감쇠비 `ζ` | **1.0** | `K_P, K_D`로 지정한 설계값 |
-| 설계 고유진동수 `ω_n` | **1.0 rad/s** | `K_P, K_D`로 지정한 설계값 |
-
-> 계측용 MATLAB Function에서 `ζ`, `ω_n`이 **-1**로 표시되는 것은 **해당 추정식을 적용할 수 없음을 나타내는 표시값**이다. 감쇠비 역산식은 양의 오버슈트를 전제로 하므로 `%OS=0`인 응답에는 적용하지 않는다. 표의 `ζ=1`, `ω_n=1`은 **응답에서 추정한 측정값이 아니라 제어기 설계값**이다.
-
-### 이론 응답과 비교
-
-초기 회전각 0°, 목표각 5°인 임계감쇠 2차 시스템에서 `ζ=1`, `ω_n=1 rad/s`일 때 선형화된 자세 응답은 다음과 같다.
+쿼터니언은 **벡터 성분 우선, 스칼라 성분 마지막** 순서인 \(q=[q_x,q_y,q_z,q_4]^T\)를 사용한다.
 
 $$
-\theta(t)=5\left[1-(1+t)e^{-t}\right]\quad[\mathrm{deg}]
+q(\theta,\hat{\boldsymbol e})=
+\begin{bmatrix}
+\hat{\boldsymbol e}\sin(\theta/2)\\
+\cos(\theta/2)
+\end{bmatrix},
+\qquad
+\dot q=\frac12\Omega(\boldsymbol\omega)q
 $$
 
-따라서
+목표 자세에 대한 오차 쿼터니언은 다음과 같이 정의한다.
 
 $$
-\theta(10)\approx4.997503^\circ,\qquad
-e(10)\approx0.002497^\circ.
+q_e=q\otimes q_{cmd}^{-1}
 $$
 
-위성 각속도는 약 1초에 최댓값에 도달한 후 0으로 감소한다. 제어 토크는 초기 양(+)의 값에서 감소하여 감속 구간에서 음(-)의 값으로 바뀐 후 0에 수렴한다. 측정된 `T_r`, `T_s`, `%OS` 및 10초 시점 자세 오차는 **설계 시 예측한 이상적 2차 시스템의 이론값과 잘 일치한다.**
+PD 제어에는 \(q_e\)의 **벡터 성분** \(q_{e,v}\in\mathbb R^3\)를 사용한다. 예를 들어 현재 Z축 자세가 0°, 목표가 +1°이면,
 
-**시험 결과:** 외란과 구동기 손실이 없는 조건에서 PD 제어기가 의도한 **임계감쇠 자세 응답**을 보이는 것을 Simulink 폐루프 시험으로 확인하였다. 이는 실제 하드웨어 성능을 입증한 결과가 아니라, 후속 비이상적 모델 및 실물 시험과 비교하기 위한 **이상적 모델 기준선(baseline)**이다.
+$$
+q_{e,v}=
+\begin{bmatrix}0\\0\\-\sin(0.5^\circ)\end{bmatrix}
+\approx
+\begin{bmatrix}0\\0\\-0.008727\end{bmatrix}
+$$
 
-## 휠 관성·마찰 모델 추가 시험 (2026-11-17)
+가 된다. 따라서 비례 제어 토크 \(-K_Pq_{e,v}\)는 목표 방향인 **+Z축**으로 생성된다.
 
-기존 **이상적 토크 전달** 시험에 `Wheel_Control_Model`을 추가하여 리액션휠 관성 및 마찰 토크의 영향을 비교하였다. 테스트는 동일한 **X축 5° 목표 자세**, **10초 시뮬레이션**을 기준으로 하며, 게인을 다시 튜닝하지 않았다.
+## 3. 모델 기반 PD 제어기 설계
 
-### 추가 모델 및 토크 정의
+### 토크 명령
 
-```text
-목표 자세 → PD 자세제어기 → τ_cmd → Wheel_Control_Model → τ_actual → 위성 동역학 → q, ω_sc
-                                           ↑       │
-                              ω_wheel ← ∫ ω̇_wheel  │
-                                           ↑       │
-                              위성 각속도 ω_sc ─────┘
-```
+$$
+\boxed{
+\boldsymbol\tau_{cmd}
+=-K_Pq_{e,v}
+-K_D(\boldsymbol\omega-\boldsymbol\omega_{cmd})
++(J_{sc}-J_a)\boldsymbol\alpha_{cmd}
+}
+$$
 
-각 축의 리액션휠을 독립적인 단일축 회전체로 근사하여 다음 모델을 구현하였다.
+여기서 \(\boldsymbol\tau_{cmd}=-\boldsymbol T_m\)이며, 이는 **위성 본체에 적용하려는 토크 명령**이다. 휠 모터 토크는 반대 부호를 갖는다.
 
-$
-\omega_{w,rel}=\omega_{wheel,abs}-\omega_{sc}
-$
+### 특성방정식으로부터 게인 도출
 
-$
-T_f=b\odot\omega_{w,rel}+c\odot\operatorname{sgn}(\omega_{w,rel})
-$
+유효 관성행렬을 \(J_{eff}=J_{sc}-J_a\)로 정의한다. 목표 자세 부근의 소각도 조건에서
 
-$
-\tau_{actual}=\tau_{cmd}+T_f,\qquad T_w=-\tau_{actual}
-$
+$$
+q_{e,v}\approx\frac{\boldsymbol e}{2},\qquad
+\dot{\boldsymbol e}=\boldsymbol\omega-\boldsymbol\omega_{cmd},\qquad
+\ddot{\boldsymbol e}=\dot{\boldsymbol\omega}-\boldsymbol\alpha_{cmd}
+$$
 
-$
-J_a\dot\omega_{wheel,abs}=T_w
-\quad\Longrightarrow\quad
-\dot\omega_{wheel,abs}=J_a^{-1}T_w.
-$
+이고, 외란과 축간 결합을 무시하면 오차 동역학은
 
-- `τ_cmd`: **자세제어기에서 생성한 위성 본체 토크 명령** [N·m]
-- `T_f`: 휠 각속도에 따라 부호가 정해지는 **마찰 토크 항** [N·m]; 실제 휠에 작용하는 마찰 토크는 `−T_f`
-- `τ_actual`: 모델에서 위성 동역학에 적용하는 **본체 반작용 토크** [N·m]
-- `T_w`: 휠에 작용하는 **순토크** [N·m]
-- `ω_wheel,abs`, `ω_sc`: 각각 휠의 절대 각속도 및 위성 본체 각속도 [rad/s]
+$$
+J_{eff}\ddot{\boldsymbol e}
++K_D\dot{\boldsymbol e}
++\frac12K_P\boldsymbol e=0
+$$
 
-`Ja = diag([0.001, 0.001, 0.001])` kg·m²를 사용하였으며, MATLAB Function에서는 `Awheel = Ja \ Tw` 형태의 **행렬 왼쪽 나눗셈**으로 휠 각가속도를 계산한다. `Awheel → Integrator → Wwheel` 경로를 통해 휠 각속도를 상태로 피드백한다.
+가 된다. \(\boldsymbol e(t)=\boldsymbol v e^{st}\;(\boldsymbol v\ne0)\)를 대입해 얻는 특성방정식은
 
-> **모델 범위:** 본 시험은 휠 축과 위성 본체 축이 대응하는 단일축/축별 근사이다. 제시된 결과에서는 위성 모델의 `hRW` 입력을 0으로 유지한 상태이므로, 3축 동시 기동 시 휠 각운동량에 따른 자이로 결합까지 검증한 것은 아니다. `b`, `c`의 실제 식별값과 해당 실행에서의 마찰 평활화 여부는 캡처만으로 확정할 수 없으므로 재현 시험에서 별도 기록이 필요하다.
+$$
+\det\left(J_{eff}s^2+K_Ds+\frac12K_P\right)=0
+$$
 
-### Simulink 응답 그래프
+이다. 이를 표준 2차 시스템 \(s^2+2\zeta\omega_ns+\omega_n^2=0\)에 대응시키면,
 
-![휠 관성 및 마찰 모델 추가 후 제어 토크·위성 각속도·자세각 응답](assets/wheel_friction_response.svg)
+$$
+\boxed{K_P=2\omega_n^2J_{eff}},
+\qquad
+\boxed{K_D=2\zeta\omega_nJ_{eff}}
+$$
 
-*그림: X축 5° 자세 기동 시 휠 관성·마찰 모델을 적용한 토크, 각속도 및 자세각 응답.*
+를 얻는다. 따라서 **경험적 게인 조정보다 먼저 목표 감쇠비와 고유진동수로 게인을 결정**할 수 있다. \(J_{eff}\)에 비대각 성분이 있으면 게인 행렬에도 축간 결합 성분이 반영된다.
 
-### 측정 출력 특성
+## 4. 자세명령 생성: Spin-to-Spin (이론 정리)
 
-![휠 마찰 모델 추가 후 성능 지표](assets/wheel_friction_metrics.svg)
+고기동 자세명령은 목표 쿼터니언뿐 아니라 **목표 각속도 \(\boldsymbol\omega_{cmd}\)**와 **목표 각가속도 \(\boldsymbol\alpha_{cmd}\)**를 하나의 궤적으로 생성해야 한다. \(\boldsymbol\alpha_{cmd}\ne0\)인데 \(\boldsymbol\omega_{cmd}=0\)으로 고정하면 일관된 운동 명령이 아니다.
 
-| 성능 지표 | 이상적 토크 기준선 | 휠 관성·마찰 추가 | 변화 |
+| 구간 | 동작 |
+|:--|:--|
+| Phase 1 — Spin-to-Rest | 초기 회전 감속 및 정지 |
+| Phase 2 — Rest-to-Rest | 정지 상태에서 자세 변경 후 정지 |
+| Phase 3 — Rest-to-Spin | 정지 상태에서 목표 각속도까지 가속 |
+| Phase 4 — Stabilization | 목표 각속도 유지 |
+
+Phase 3에서는 가속도 제한을 고려해 **Bang-Bang** 또는 **Bang-Off-Bang** 형태의 속도 프로파일을 선택한다. 가속도 상한을 초과하는 삼각형 프로파일 대신 가속·정속·감속 구간을 구성할 수 있다.
+
+학습 노트의 Phase 4 예시에서는 종료 시각 \(t_6=10\,s\), 안정화 시간 \(3\,s\), 목표 각속도 크기 \(2^\circ/s\), 회전축 \(\hat{\boldsymbol e}=[0.6,\,0.8,\,0]^T\)를 사용한다. \(7\le t\le10\,s\)에서
+
+$$
+\boldsymbol\omega_{cmd}=
+\begin{bmatrix}1.2\\1.6\\0\end{bmatrix}\;[^\circ/s],
+\qquad
+\boldsymbol\alpha_{cmd}=\boldsymbol0,
+\qquad
+\theta_{cmd}(t)=2(t-10)^\circ
+$$
+
+이다. **위 예시는 자세명령 생성 원리의 정리이며, 아래 X축 계단입력 시험에 적용한 결과는 아니다.** 실제 Simulink 입력에는 각도·각속도를 각각 rad, rad/s 단위로 변환해야 한다.
+
+## 5. 시뮬레이션 조건: X축 5° 자세 기동
+
+| 항목 | 설정 |
+|:--|:--|
+| 목표 자세 \(q_{cmd}\) | \`[sin(pi/72); 0; 0; cos(pi/72)]\` |
+| 초기 자세 \(q(0)\) | \`[0; 0; 0; 1]\` |
+| 초기 각속도 / 목표 각속도·각가속도 | 모두 \`[0; 0; 0]\` |
+| 설계 감쇠비 / 고유진동수 | **\(\zeta=1\), \(\omega_n=1\,rad/s\)** |
+| X축 유효 관성 \(J_{eff,x}\) | **0.199 kg·m²** |
+| X축 PD 게인 | **\(K_{P,x}=0.398\), \(K_{D,x}=0.398\)** |
+| 시뮬레이션 시간 | **10 s** |
+| 적분 설정 | Variable-step \`ode45\`, RelTol \`1e-8\`, Max step \`0.001 s\` |
+| 휠 각운동량 입력 | \`hRW = [0; 0; 0]\` (단일축 시험용 단순화) |
+
+### 시험 A. 이상적 토크 전달
+
+![Ideal PD response](assets/ideal_pd_response.svg)
+
+*그림: \(\zeta=1\), \(\omega_n=1\) 조건에서 선형화된 2차계의 해석적 기준 응답.*
+
+![Ideal PD response metrics](assets/ideal_pd_metrics.svg)
+
+임계감쇠 2차 시스템에서 예측한 자세각은
+
+$$
+\theta(t)=5\left[1-(1+t)e^{-t}\right]\;[^\circ]
+$$
+
+이다. 측정된 상승시간 **3.359 s**, 정착시간 **5.835 s**, 오버슈트 **0%**, 10초 자세오차 **0.002498°**는 이론값과 잘 일치하였다.
+
+### 시험 B. 리액션휠 관성·마찰 추가
+
+\`Wheel_Control_Model\`에 휠의 절대 각속도 상태와 마찰 토크를 추가하였다.
+
+$$
+\begin{aligned}
+\boldsymbol\omega_{w,rel}
+&=\boldsymbol\omega_{wheel,abs}-\boldsymbol\omega_{sc}\\
+\boldsymbol T_f
+&=\boldsymbol b\odot\boldsymbol\omega_{w,rel}
++\boldsymbol c\odot\operatorname{sgn}(\boldsymbol\omega_{w,rel})\\
+\boldsymbol\tau_{actual}
+&=\boldsymbol\tau_{cmd}+\boldsymbol T_f\\
+\boldsymbol T_w&=-\boldsymbol\tau_{actual}\\
+\dot{\boldsymbol\omega}_{wheel,abs}
+&=J_a^{-1}\boldsymbol T_w
+\end{aligned}
+$$
+
+- \(\boldsymbol T_f\): 휠 속도에 의존하는 **마찰 토크 항** (휠에 작용하는 실제 마찰 토크는 \(-\boldsymbol T_f\))
+- \(\boldsymbol T_w\): 휠에 작용하는 **순토크**
+- \(\boldsymbol\tau_{actual}\): 위성에 적용하는 **반작용 토크**
+
+휠 관성은 \(J_a=\operatorname{diag}(0.001,0.001,0.001)\;kg\cdot m^2\)로 설정하였으며, MATLAB Function에서 \`Awheel = Ja \ Tw\`로 각가속도를 계산한다. 이 값을 적분해 휠 속도로 피드백한다. 0 부근에서의 마찰 불연속성은 필요 시 \`tanh\` 평활화로 근사할 수 있다.
+
+![Wheel inertia and friction response](assets/wheel_friction_response.svg)
+
+*그림: X축 5° 자세 기동에서 휠 관성·마찰 모델을 추가한 후의 토크, 각속도 및 자세각 응답.*
+
+![Wheel inertia and friction metrics](assets/wheel_friction_metrics.svg)
+
+### 시험 결과 비교
+
+| 성능 지표 | 이상적 구동기 | 휠 관성·마찰 추가 | 변화 |
 |:--|--:|--:|--:|
-| 상승시간 `T_r` (10→90%) | 3.359 s | **3.446 s** | **+0.087 s** |
-| 정착시간 `T_s` (±2%) | 5.835 s | **6.276 s** | **+0.441 s** |
-| 최대 오버슈트 `%OS` | 0 % | **0 %** | 0 %p |
-| 10초 시점 자세오차 | 0.002498° | **0.01896°** | **+0.016462°** |
-| 감쇠비 `ζ` 추정 함수 표시 | -1 | **-1** | 역추정 불가 표시 |
-| 고유진동수 `ω_n` 추정 함수 표시 | -1 | **-1** | 역추정 불가 표시 |
+| 상승시간 \(T_r\) (10–90%) | 3.359 s | **3.446 s** | +0.087 s |
+| 정착시간 \(T_s\) (±2%) | 5.835 s | **6.276 s** | +0.441 s |
+| 최대 오버슈트 | 0% | **0%** | 0%p |
+| 10초 시점 자세오차 | 0.002498° | **0.01896°** | +0.016462° |
 
-`-1`은 출력 특성 계산 블록의 **추정 불가 표시값**이며 실제 시스템의 감쇠비 및 고유진동수가 아니다. 자세제어기 설계값은 두 시험 모두 `ζ=1`, `ω_n=1 rad/s`로 유지하였다.
+마찰계수 \(\boldsymbol b=\boldsymbol0\), \(\boldsymbol c=\boldsymbol0\)으로 설정하면 기존 이상적 모델과 **동일한 응답**을 확인하였다. 마찰을 추가한 경우 상승·정착시간과 자세오차가 증가하였으나 오버슈트는 발생하지 않았다.
 
-### 1차 검증 결과
+> **해석 범위:** \(\zeta\), \(\omega_n\)은 설계값 1.0이며, 계측 블록의 \`-1\` 표시는 역추정 불가를 뜻한다. 휠 마찰계수는 실측 식별값이 아니고, \`hRW=0\`으로 유지한 축별 근사 모델이므로 실제 3축 자이로 결합이나 하드웨어 성능까지 검증한 결과는 아니다.
 
-1. **마찰 제거 시험:** `b=0`, `c=0`에서 기존 이상적 토크 전달 모델과 **응답이 일치**함을 확인하였다.
-2. **마찰 추가 시험:** 상승시간과 정착시간이 각각 0.087초, 0.441초 증가하고, 10초 시점 자세오차가 0.016462° 증가하였다. 오버슈트는 0%로 유지되었다.
+## 6. 후속 개발
 
-**해석:** 휠 모델 추가 후 응답 특성이 달라지고, 마찰을 제거하면 기준선이 복원된다는 점에서 **블록 연결 및 마찰 모델 영향에 대한 1차 시뮬레이션 검증**은 이루어졌다. 그러나 이것만으로 실제 휠의 마찰계수, 정밀한 3축 동역학 또는 실물 자세제어 성능이 검증된 것은 아니다.
+- **자세명령 생성 구현:** Spin-to-Spin에서 \(q_{cmd}(t)\), \(\omega_{cmd}(t)\), \(\alpha_{cmd}(t)\)를 일관되게 생성하고 추종 시험 수행
+- **휠 모델 고도화:** 마찰계수 식별, 토크 제한·지연 및 3축 휠 각운동량 반영
+- **STM32 검증:** 모델 기반 제어기 펌웨어 구현 후 Simulink 예측과 실측 응답 비교
 
-## 후속 검증 계획
-
-- **리액션휠 마찰 파라미터 식별:** 현재 구성한 점성·쿨롱마찰 모델의 `b`, `c`를 실측 또는 근거 있는 데이터로 식별하고 시뮬레이션을 재검증
-- **토크 명령 ↔ 실제 토크 차이:** 휠 구동 응답, 지연, 제한조건을 적용한 뒤 자세 응답 변화 검토
-- **STM32 구현 및 실물 검증:** 제어기 펌웨어 구현 후 Simulink 예측과 계측값 비교
-
-위 항목은 **후속 계획**이며 현재 단계의 시뮬레이션 결과와 구분한다.
-
----
-
-### 사용 도구
-
-- MATLAB / Simulink
-- Simulink Simulation Data Inspector (신호 기록 및 시간응답 비교)
-- Dashboard Display (상태 및 성능지표 표시)
+**개발 도구:** MATLAB / Simulink, Simulation Data Inspector, Dashboard Display
