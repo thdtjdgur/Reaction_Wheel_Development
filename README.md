@@ -45,13 +45,13 @@
 
 휠 축이 위성 본체의 X·Y·Z축에 각각 정렬된 경우를 다룬다. 본체 좌표계에서 전체 각운동량과 회전 동역학은 다음과 같다.
 
-$$
+```math
 \boldsymbol H=J_{sc}\boldsymbol\omega+J_a\boldsymbol\nu,
 \qquad
 J_{sc}\dot{\boldsymbol\omega}
 =\boldsymbol H\times\boldsymbol\omega-J_a\boldsymbol\mu
 +\boldsymbol\tau_{dist}
-$$
+```
 
 | 기호 | 의미 |
 |:--|:--|
@@ -64,25 +64,25 @@ $$
 
 휠의 절대 각가속도에 대응하는 순토크를 $\boldsymbol T_w=J_a(\dot{\boldsymbol\omega}+\boldsymbol\mu)$로 놓고 $J_{eff}=J_{sc}-J_a$를 정의하면,
 
-$$
+```math
 \boxed{
 J_{eff}\dot{\boldsymbol\omega}
 =\boldsymbol H\times\boldsymbol\omega
 -\boldsymbol T_w+\boldsymbol\tau_{dist}
 }
-$$
+```
 
 가 된다. 위성 본체에 적용하는 반작용 토크는 $\boldsymbol\tau_{actual}=-\boldsymbol T_w$이다. 이상적 토크 전달에서는 $\boldsymbol T_w=\boldsymbol T_m=-\boldsymbol\tau_{cmd}$이며, 마찰 포함 모델의 토크 관계는 5절에서 설명한다.
 
 현재 `Spacecraft_Model`은 다음 식을 구현한다.
 
-$$
+```math
 \dot{\boldsymbol\omega}
 =J_{eff}^{-1}\left[
 (J_{sc}\boldsymbol\omega+\boldsymbol h_{RW})\times\boldsymbol\omega
 +\boldsymbol\tau_{actual}\right],
 \qquad \boldsymbol h_{RW}=J_a\boldsymbol\nu
-$$
+```
 
 **현재 시험에서는 `hRW` 입력을 항상 0으로 고정한다.** 따라서 $J_{sc}\boldsymbol\omega$에 의한 본체의 축간 결합은 계산하지만, 휠 회전에 따른 $J_a\boldsymbol\nu$의 자이로 결합은 반영하지 않는다. 외란 토크 입력도 현재 시험에 추가하지 않았다.
 
@@ -90,7 +90,7 @@ $$
 
 자세 상태와 목표 자세는 **벡터 성분 우선, 스칼라 성분 마지막** 순서인 $q=[q_x,q_y,q_z,q_4]^T$를 사용한다.
 
-$$
+```math
 q(\theta,\hat{\boldsymbol e})=
 \begin{bmatrix}
 \hat{\boldsymbol e}\sin(\theta/2)\\
@@ -98,20 +98,20 @@ q(\theta,\hat{\boldsymbol e})=
 \end{bmatrix},
 \qquad
 \dot q=\frac12\Omega(\boldsymbol\omega)q
-$$
+```
 
 단위 쿼터니언의 역원을 이용한 자세 오차는
 
-$$
+```math
 q_e=q\otimes q_{cmd}^{-1}
-$$
+```
 
 로 정의하고, 제어에는 벡터 성분 $q_{e,v}\in\mathbb R^3$를 사용한다. 현재 Z축 자세가 0°, 목표가 +1°이면
 
-$$
+```math
 q_{e,v}=\begin{bmatrix}0\\0\\-\sin(0.5^\circ)\end{bmatrix}
 \approx\begin{bmatrix}0\\0\\-0.008727\end{bmatrix}
-$$
+```
 
 이므로, 비례 제어 항은 목표 방향으로 회전시키는 토크를 생성한다.
 
@@ -121,14 +121,14 @@ $$
 
 ### 토크 명령
 
-$$
+```math
 \boxed{
 \boldsymbol\tau_{cmd}
 =-K_Pq_{e,v}
 -K_D(\boldsymbol\omega-\boldsymbol\omega_{cmd})
 +J_{eff}\boldsymbol\alpha_{cmd}
 }
-$$
+```
 
 $\boldsymbol\tau_{cmd}$는 위성 본체에 적용하려는 토크 명령이며, 모터 토크 명령은 반대 부호이다. 마지막 항은 목표 각가속도에 대한 관성 피드포워드이다. 아래 이득 유도는 **목표 부근의 소각도, 같은 좌표계로 표현한 각속도 오차, 외란 및 자이로 결합을 무시하는 근사**에 기반한다.
 
@@ -136,40 +136,40 @@ $\boldsymbol\tau_{cmd}$는 위성 본체에 적용하려는 토크 명령이며,
 
 작은 자세 오차 벡터를 $\boldsymbol e$로 두면,
 
-$$
+```math
 q_{e,v}\approx\frac{\boldsymbol e}{2},\qquad
 \dot{\boldsymbol e}\approx\boldsymbol\omega-\boldsymbol\omega_{cmd},\qquad
 \ddot{\boldsymbol e}\approx\dot{\boldsymbol\omega}-\boldsymbol\alpha_{cmd}
-$$
+```
 
 이고, 선형화한 오차 동역학은
 
-$$
+```math
 J_{eff}\ddot{\boldsymbol e}
 +K_D\dot{\boldsymbol e}
 +\frac12K_P\boldsymbol e=0
-$$
+```
 
 가 된다. $\boldsymbol e(t)=\boldsymbol v e^{st}$, $\boldsymbol v\ne0$를 대입하면
 
-$$
+```math
 \det\left(J_{eff}s^2+K_Ds+\frac12K_P\right)=0
-$$
+```
 
 를 얻는다. $J_{eff}$가 가역일 때, 원하는 감쇠비 $\zeta$와 고유진동수 $\omega_n$에 대해
 
-$$
+```math
 \boxed{K_P=2\omega_n^2J_{eff}},
 \qquad
 \boxed{K_D=2\zeta\omega_nJ_{eff}}
-$$
+```
 
 로 설정하면 선형 오차 동역학이
 
-$$
+```math
 \ddot{\boldsymbol e}+2\zeta\omega_n\dot{\boldsymbol e}
 +\omega_n^2\boldsymbol e=0
-$$
+```
 
 형태가 된다. $K_P$와 $K_D$는 **3×3 행렬**이며, 관성행렬의 비대각 성분도 이득에 반영된다. 이 선형 설계 결과를 일반적인 큰각 기동이나 회전 목표 추종에 적용하려면 좌표계 변환과 비선형 결합 항을 추가로 검토해야 한다.
 
@@ -193,14 +193,14 @@ $$
 
 논문 정리 노트의 Phase 4 예시는 종료 시각 $t_6=10\,\mathrm{s}$, 안정화 시간 $3\,\mathrm{s}$, 최종 각속도 크기 $2^\circ/\mathrm{s}$, 고정 회전축 $\hat{\boldsymbol e}=[0.6,0.8,0]^T$를 사용한다. $7\le t\le10\,\mathrm{s}$에서
 
-$$
+```math
 \boldsymbol\omega_{cmd}
 =\begin{bmatrix}1.2\\1.6\\0\end{bmatrix}\;[^\circ/\mathrm{s}],
 \qquad
 \boldsymbol\alpha_{cmd}=\boldsymbol0,
 \qquad
 \theta_{rel}(t)=2(t-10)\;[^\circ]
-$$
+```
 
 이다. $\theta_{rel}$은 최종 자세를 기준으로 한 상대 회전각으로, 7초에 −6°, 10초에 0°가 된다. **목표 각속도가 0이 아니므로 안정화 구간에도 목표 자세는 시간에 따라 변한다.** Simulink 입력에는 각도·각속도·각가속도를 각각 rad, rad/s, rad/s²로 변환한다.
 
@@ -212,7 +212,7 @@ $$
 
 현재 모델의 Model Workspace에 저장된 관성행렬은 다음과 같다. 단위는 kg·m²이다.
 
-$$
+```math
 J_{sc}=\begin{bmatrix}
 0.200&0.010&-0.005\\
 0.010&0.250&0.008\\
@@ -220,7 +220,7 @@ J_{sc}=\begin{bmatrix}
 \end{bmatrix},
 \qquad
 J_a=\operatorname{diag}(0.001,0.001,0.001)
-$$
+```
 
 | 항목 | 설정 |
 |:--|:--|
@@ -251,9 +251,9 @@ X축 목표 기동에서도 관성행렬의 비대각 성분에 따라 Y·Z축 �
 
 초기 자세 0°, 목표 자세 5°인 임계감쇠 2차계의 이론 응답은
 
-$$
+```math
 \theta(t)=5\left[1-(1+t)e^{-t}\right]\;[^\circ]
-$$
+```
 
 이다. 이론 상승시간은 약 **3.3579 s**, 정착시간은 약 **5.8339 s**, 10초 시점 오차는 약 **0.002497°**이며, 아래의 기존 시뮬레이션 기록과 잘 일치한다.
 
@@ -261,15 +261,15 @@ $$
 
 논문 정리 노트의 점성·쿨롱마찰식은
 
-$$
+```math
 \boldsymbol T_f
 =\boldsymbol b\odot\boldsymbol\omega_{w,rel}
 +\boldsymbol c\odot\operatorname{sgn}(\boldsymbol\omega_{w,rel})
-$$
+```
 
 이다. **현재 저장된 `Wheel_Control_Model`은 쿨롱마찰 항을 `tanh`로 평활화하여 구현한다.** 각 축별 근사식은 다음과 같다.
 
-$$
+```math
 \begin{aligned}
 \boldsymbol\omega_{w,rel}
 &=\boldsymbol\omega_{wheel,abs}-\boldsymbol\omega_{sc}\\
@@ -282,7 +282,7 @@ $$
 =\boldsymbol\tau_{cmd}+\boldsymbol T_f\\
 \dot{\boldsymbol\omega}_{wheel,abs}&=J_a^{-1}\boldsymbol T_w
 \end{aligned}
-$$
+```
 
 여기서 $\odot$와 `tanh`는 성분별 연산이다. $\boldsymbol T_f$는 상대속도에 따라 부호가 정해지는 마찰 항이며, **휠에 작용하는 마찰 토크는 $-\boldsymbol T_f$**이다. 위성 토크 식의 덧셈 부호도 이 반작용 관계에서 나온다.
 
