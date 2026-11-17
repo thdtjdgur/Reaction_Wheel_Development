@@ -219,7 +219,7 @@ J_{sc}=\begin{bmatrix}
 -0.005&0.008&0.300
 \end{bmatrix},
 \qquad
-J_a=\operatorname{diag}(0.001,0.001,0.001)
+J_a=\mathrm{diag}(0.001,0.001,0.001)
 ```
 
 | 항목 | 설정 |
@@ -264,7 +264,7 @@ X축 목표 기동에서도 관성행렬의 비대각 성분에 따라 Y·Z축 �
 ```math
 \boldsymbol T_f
 =\boldsymbol b\odot\boldsymbol\omega_{w,rel}
-+\boldsymbol c\odot\operatorname{sgn}(\boldsymbol\omega_{w,rel})
++\boldsymbol c\odot\mathrm{sgn}(\boldsymbol\omega_{w,rel})
 ```
 
 이다. **현재 저장된 `Wheel_Control_Model`은 쿨롱마찰 항을 `tanh`로 평활화하여 구현한다.** 각 축별 근사식은 다음과 같다.
